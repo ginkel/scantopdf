@@ -18,7 +18,7 @@ EOF
 }
 
 SOURCE="ADF Front"
-MODE="Lineart"
+MODE="Gray"
 RESOLUTION="150"
 BATCH_START="1"
 TITLE=`uuidgen`
@@ -60,6 +60,7 @@ scanimage \
   --rollerdeskew=yes \
   --swcrop=yes \
   --stapledetect=yes \
+  --mode=${MODE} \
   --source "${SOURCE}"
 
 #  --df-thickness=yes \
