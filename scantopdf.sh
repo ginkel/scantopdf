@@ -10,7 +10,10 @@ This script scans a document and produces a PDF file.
 OPTIONS:
    -h      Show this message
    -d      Duplex
+   -f      Do not try to detect double feeds
+   -g      Keep grayscale image
    -m      Mode, e.g. Lineart or Gray
+   -n      Do not perform postprocessing
    -o      Do not perform OCR
    -r      Resolution in DPI
    -s      Page number to start naming files with
@@ -26,12 +29,18 @@ BATCH_START="1"
 TITLE=`uuidgen`
 SUBJECT="${TITLE}"
 OCR="1"
+NOPREPROCESS="0"
+CONVERTTOBW="--convertToBWImage"
+DOUBLEFEED="yes"
 
-while getopts "hdm:or:s:t:" OPTION; do
+while getopts "hdgm:nor:s:t:" OPTION; do
   case $OPTION in
     h) usage; exit 1 ;;
     d) DUPLEX="1"; SOURCE="ADF Duplex" ;;
+    f) DOUBLEFEED="no" ;;
+    g) CONVERTTOBW="" ;;
     m) MODE=$OPTARG ;;
+    n) NOPREPROCESS=1 ;;
     o) OCR="0" ;;
     r) RESOLUTION=$OPTARG ;;
     s) BATCH_START=$OPTARG ;;
@@ -56,18 +65,18 @@ scanimage \
   --batch="${DEST_DIR}/out%03d.pnm" \
   --batch-start=${BATCH_START} \
   --resolution=${RESOLUTION} \
-  --page-width 210 \
-  --page-height 297 \
-  -l 0 \
-  -t 0 \
-  -x 210 \
-  -y 297 \
   --rollerdeskew=yes \
   --swcrop=yes \
   --stapledetect=yes \
-  --df-thickness=yes \
+  --df-thickness=${DOUBLEFEED} \
   --mode=${MODE} \
-  --source "${SOURCE}"
+  --source "${SOURCE}" \
+  --page-width 210 \
+  --page-height 350 
+#  -l 0 \
+#  -t 0 \
+#  -x 210 \
+#  -y 297 \
 
 if [ "${DUPLEX}" -eq "1" ]; then
   echo "Detecting blank pages..."
@@ -91,27 +100,36 @@ fi
 #  rm "${i}"
 #done
 
-echo "Converting to b/w..."
-for i in "${DEST_DIR}/out"*.pnm; do
-  convert "${i}" -colorspace gray -level 10%,90%,1 -blur 2 +dither -monochrome "${DEST_DIR}/bw_`basename "${i}" .pnm`.tif"
-done
+if [ "${NOPREPROCESS}" -eq "0" ]; then
+  echo "Converting to b/w..."
+  for i in "${DEST_DIR}/out"*.pnm; do
+    convert "${i}" -colorspace gray -level 10%,90%,1 -blur 2 +dither -monochrome "${DEST_DIR}/bw_`basename "${i}" .pnm`.tif"
+  done
 
-echo "Removing borders..."
-for i in "${DEST_DIR}/bw_"*.tif; do
-  width=`identify -format "%w" ${i}`
-  height=`identify -format "%h" ${i}`
-  convert "${i}" -stroke black -fill black -draw "rectangle 0,$((height-75)) ${width},${height}" -draw "rectangle $((width-75)),0 ${width},${height}" +matte "${DEST_DIR}/border_`basename "${i}" .tif`.tif"
-  convert "${DEST_DIR}/border_`basename "${i}" .tif`.tif" -fill white -draw "color $((width-1)),$((height-1)) floodfill" +matte "${DEST_DIR}/whitened_`basename "${i}" .tif`.tif"
-done
+  echo "Removing borders..."
+  for i in "${DEST_DIR}/bw_"*.tif; do
+    width=`identify -format "%w" ${i}`
+    height=`identify -format "%h" ${i}`
+    convert "${i}" -stroke black -fill black -draw "rectangle 0,$((height-50)) ${width},${height}" -draw "rectangle $((width-50)),0 ${width},${height}" +matte "${DEST_DIR}/border_`basename "${i}" .tif`.tif"
+    convert "${DEST_DIR}/border_`basename "${i}" .tif`.tif" -fill white -draw "color $((width-1)),$((height-1)) floodfill" +matte "${DEST_DIR}/whitened_`basename "${i}" .tif`.tif"
+  done
+fi
 
 if [ ! -z "$DEST_FILE" ]; then
-  tiffcp "${DEST_DIR}/whitened_"*".tif" "${DEST_DIR}/all.tif"
+  if [ "${NOPREPROCESS}" -eq "0" ]; then
+    tiffcp "${DEST_DIR}/whitened_"*".tif" "${DEST_DIR}/all.tif"
+  else
+    for i in "${DEST_DIR}/out"*.pnm; do
+      convert "${i}" "${DEST_DIR}/`basename "${i}" .pnm`.tif"
+      tiffcp "${DEST_DIR}/out"*".tif" "${DEST_DIR}/all.tif"
+    done
+  fi
 
   if [ ${OCR} -eq "1" ]; then
     abbyyocr9 \
       --progressInformation \
       -id \
-      --convertToBWImage \
+      ${CONVERTTOBW} \
       --recognitionLanguage German \
       --inputFileName "${DEST_DIR}/all.tif" \
       --outputFileFormat PDFA \
