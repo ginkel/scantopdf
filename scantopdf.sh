@@ -9,6 +9,7 @@ This script scans a document and produces a PDF file.
 
 OPTIONS:
    -h      Show this message
+   -b      Do not attempt to detect blank pages
    -d      Duplex
    -f      Do not try to detect double feeds
    -g      Keep grayscale image
@@ -21,6 +22,18 @@ OPTIONS:
 EOF
 }
 
+function from_scientific() {
+  local scientific=$1
+  if [[ ${scientific} == *"e+"* ]]; then
+    local base=$(echo $scientific | cut -d 'e' -f1)
+    local exp=$(($(echo $scientific | cut -d 'e' -f2)*1))
+    local converted=$(bc -l <<< "$base*(10^$exp)")
+    echo $converted
+  else
+    echo $scientific
+  fi
+}
+
 DUPLEX="0"
 SOURCE="ADF Front"
 MODE="Gray"
@@ -30,12 +43,15 @@ TITLE=`uuidgen`
 SUBJECT="${TITLE}"
 OCR="1"
 NOPREPROCESS="0"
+NOBLANKPAGEDETECT="0"
 CONVERTTOBW="--convertToBWImage"
 DOUBLEFEED="yes"
+ABBYYOCR=abbyyocr11
 
-while getopts "hdgm:nor:s:t:" OPTION; do
+while getopts "hdgm:nor:s:t:fib" OPTION; do
   case $OPTION in
     h) usage; exit 1 ;;
+    b) NOBLANKPAGEDETECT=1 ;;
     d) DUPLEX="1"; SOURCE="ADF Duplex" ;;
     f) DOUBLEFEED="no" ;;
     g) CONVERTTOBW="" ;;
@@ -62,34 +78,38 @@ if [ $# == 1 ]; then
 fi
 
 scanimage \
+  --device canon_dr \
   --batch="${DEST_DIR}/out%03d.pnm" \
   --batch-start=${BATCH_START} \
   --resolution=${RESOLUTION} \
+  -l 0 \
+  -t 0 \
+  -x 210 \
+  -y 297 \
   --rollerdeskew=yes \
-  --swcrop=yes \
   --stapledetect=yes \
   --df-thickness=${DOUBLEFEED} \
   --mode=${MODE} \
   --source "${SOURCE}" \
   --page-width 210 \
-  --page-height 350 
-#  -l 0 \
-#  -t 0 \
-#  -x 210 \
-#  -y 297 \
+  --page-height 350
 
 if [ "${DUPLEX}" -eq "1" ]; then
-  echo "Detecting blank pages..."
-  for i in "${DEST_DIR}/out"*.pnm; do
-    histogram=`convert "${i}" -threshold 50% -format %c histogram:info:-`
-    white=`echo "${histogram}" | grep "white" | sed -n 's/^ *\(.*\):.*$/\1/p'`
-    black=`echo "${histogram}" | grep "black" | sed -n 's/^ *\(.*\):.*$/\1/p'`
-    blank=`echo "scale=4; ${black}/${white} < 0.005" | bc`
-    if [ ${blank} -eq "1" ]; then
-      echo "${i} seems to be blank - removing it..."
-      rm "${i}"
-    fi
-  done
+  if [ "${NOBLANKPAGEDETECT}" -eq "0" ]; then
+    echo "Detecting blank pages..."
+    for i in "${DEST_DIR}/out"*.pnm; do
+      histogram=`convert "${i}" -threshold 50% -format %c histogram:info:-`
+      white=`echo "${histogram}" | grep "#FFFFFF" | sed -n 's/^ *\(.*\):.*$/\1/p'`
+      black=`echo "${histogram}" | grep "#000000" | sed -n 's/^ *\(.*\):.*$/\1/p'`
+      white_corrected=$(from_scientific ${white})
+      black_corrected=$(from_scientific ${black})
+      blank=`echo "scale=4; ${black_corrected}/${white_corrected} < 0.005" | bc`
+      if [[ "${blank}" -eq "1" ]]; then
+        echo "${i} seems to be blank - removing it..."
+        rm "${i}"
+      fi
+    done
+  fi
 fi
 
 #for i in "${DEST_DIR}/out"*.pnm; do
@@ -110,8 +130,9 @@ if [ "${NOPREPROCESS}" -eq "0" ]; then
   for i in "${DEST_DIR}/bw_"*.tif; do
     width=`identify -format "%w" ${i}`
     height=`identify -format "%h" ${i}`
+    echo "Width, height: ${width} / ${height}"
     convert "${i}" -stroke black -fill black -draw "rectangle 0,$((height-50)) ${width},${height}" -draw "rectangle $((width-50)),0 ${width},${height}" +matte "${DEST_DIR}/border_`basename "${i}" .tif`.tif"
-    convert "${DEST_DIR}/border_`basename "${i}" .tif`.tif" -fill white -draw "color $((width-1)),$((height-1)) floodfill" +matte "${DEST_DIR}/whitened_`basename "${i}" .tif`.tif"
+    convert "${DEST_DIR}/border_`basename "${i}" .tif`.tif" -fill white -draw "color $((width-1)),$((height-1)) floodfill" "${DEST_DIR}/whitened_`basename "${i}" .tif`.tif"
   done
 fi
 
@@ -126,16 +147,20 @@ if [ ! -z "$DEST_FILE" ]; then
   fi
 
   if [ ${OCR} -eq "1" ]; then
-    abbyyocr9 \
+    $ABBYYOCR \
       --progressInformation \
-      -id \
+      $ABBYY_ARGS \
       ${CONVERTTOBW} \
+      --progressInformation \
       --recognitionLanguage German \
       --inputFileName "${DEST_DIR}/all.tif" \
-      --outputFileFormat PDFA \
-      --pdfaExportMode ImageOnText \
-      --pdfaReleasePageSizeByLayoutSize \
-      --pdfaQuality 100 \
+      --convertToBWImage \
+      --skipEmptyPages \
+      --outputFileFormat PDF \
+      --pdfPaperSizeMode SynthesisSize \
+      --pdfTextExportMode ImageOnText \
+      --pdfaComplianceMode Pdfa_2a \
+      --pdfJpegQuality 100 \
       --outputFileName "${DEST_DIR}/result.pdf"
   else
     tiff2pdf \
