@@ -44,7 +44,6 @@ SUBJECT="${TITLE}"
 OCR="1"
 NOPREPROCESS="0"
 NOBLANKPAGEDETECT="0"
-CONVERTTOBW="--convertToBWImage"
 DOUBLEFEED="yes"
 ABBYYOCR=abbyyocr11
 
@@ -54,7 +53,6 @@ while getopts "hdgm:nor:s:t:fib" OPTION; do
     b) NOBLANKPAGEDETECT=1 ;;
     d) DUPLEX="1"; SOURCE="ADF Duplex" ;;
     f) DOUBLEFEED="no" ;;
-    g) CONVERTTOBW="" ;;
     m) MODE=$OPTARG ;;
     n) NOPREPROCESS=1 ;;
     o) OCR="0" ;;
@@ -147,21 +145,7 @@ if [ ! -z "$DEST_FILE" ]; then
   fi
 
   if [ ${OCR} -eq "1" ]; then
-    $ABBYYOCR \
-      --progressInformation \
-      $ABBYY_ARGS \
-      ${CONVERTTOBW} \
-      --progressInformation \
-      --recognitionLanguage German \
-      --inputFileName "${DEST_DIR}/all.tif" \
-      --convertToBWImage \
-      --skipEmptyPages \
-      --outputFileFormat PDF \
-      --pdfPaperSizeMode SynthesisSize \
-      --pdfTextExportMode ImageOnText \
-      --pdfaComplianceMode Pdfa_2a \
-      --pdfJpegQuality 100 \
-      --outputFileName "${DEST_DIR}/result.pdf"
+    tesseract "${DEST_DIR}/all.tif" "${DEST_DIR}/result" -l deu+eng pdf
   else
     tiff2pdf \
       -j -q 50 \
