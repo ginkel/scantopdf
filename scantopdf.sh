@@ -12,12 +12,9 @@ OPTIONS:
    -b      Do not attempt to detect blank pages
    -d      Duplex
    -f      Do not try to detect double feeds
-   -g      Keep grayscale image
    -m      Mode, e.g. Lineart or Gray
    -n      Do not perform postprocessing
    -r      Resolution in DPI
-   -s      Page number to start naming files with
-   -t      Title of PDF file
 EOF
 }
 
